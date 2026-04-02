@@ -1,0 +1,176 @@
+# monlay configuration
+# ======================
+#
+# This file defines monitor profiles that are automatically applied
+# when monitors are connected or disconnected.
+#
+# Location: ~/.config/monlay/config.yaml
+#
+# Quick start:
+#   1. Connect your monitors and arrange them in GNOME Settings
+#   2. Run: monlay save-profile my-desk
+#   3. Repeat for each monitor combination
+#   4. Start the daemon: systemctl --user start monlay
+
+# ---------------------------------------------------------------------------
+# Global settings
+# ---------------------------------------------------------------------------
+settings:
+  # Debounce delay in milliseconds. The daemon waits this long after
+  # the last MonitorsChanged signal before applying a profile.
+  # Increase if you get spurious re-applies during dock plug-in.
+  settle_delay_ms: 1500
+
+  # Log level: DEBUG, INFO, WARNING, ERROR
+  log_level: INFO
+
+# ---------------------------------------------------------------------------
+# Profiles
+# ---------------------------------------------------------------------------
+# Each profile defines:
+#   - name:        Unique identifier
+#   - description: Human-readable description (optional)
+#   - monitors:    Map of alias -> {vendor, product, serial?}
+#                  Matching is by EDID (vendor+product), NOT connector name,
+#                  because connector names change on every plug cycle with
+#                  Thunderbolt/USB-C docks.
+#   - layout:      List of positioned monitors referencing aliases
+#   - post_config: Actions to run after layout is applied (optional)
+#
+# To find vendor/product values for your monitors, run: monlay status
+
+profiles:
+  # --- Example: Triple monitor (office desk) ---
+  - name: triple-office
+    description: "Iiyama left, Samsung center, laptop right"
+    monitors:
+      iiyama:
+        vendor: "IVM"
+        product: "PL7512U"
+      samsung:
+        vendor: "SAM"
+        product: "LS49A950U"
+      laptop:
+        vendor: "AUO"
+        product: "0x87a8"
+    layout:
+      # Iiyama 1920x1080 on the left
+      - monitor: iiyama
+        x: 0
+        y: 0
+        scale: 1.0
+        primary: false
+        mode: "1920x1080@60"
+
+      # Samsung 5120x1440 in the center
+      # Position: right of Iiyama (1920px wide)
+      - monitor: samsung
+        x: 1920
+        y: 0
+        scale: 1.0
+        primary: true
+        mode: "5120x1440@120"
+
+      # Laptop 3840x2400 on the right
+      # Position: right of Samsung (1920 + 5120 = 7040)
+      # Note: coordinates are in PHYSICAL pixels, so at scale=2
+      # the laptop occupies 3840px in the layout
+      - monitor: laptop
+        x: 7040
+        y: 0
+        scale: 2.0
+        primary: false
+        mode: "3840x2400@120"
+
+    # Post-config actions run after the layout is applied
+    post_config:
+      # Move ubuntu-dock to the Samsung
+      - type: dock_monitor
+        monitor: samsung
+
+      # Refresh wallpaper (workaround for GNOME black wallpaper bug)
+      - type: wallpaper_refresh
+
+  # --- Example: Laptop + Samsung ---
+  - name: dual-samsung
+    description: "Samsung left, laptop right"
+    monitors:
+      samsung:
+        vendor: "SAM"
+        product: "LS49A950U"
+      laptop:
+        vendor: "AUO"
+        product: "0x87a8"
+    layout:
+      - monitor: samsung
+        x: 0
+        y: 0
+        scale: 1.0
+        primary: true
+        mode: "5120x1440@120"
+      - monitor: laptop
+        x: 5120
+        y: 0
+        scale: 2.0
+        primary: false
+        mode: "3840x2400@120"
+    post_config:
+      - type: dock_monitor
+        monitor: samsung
+      - type: wallpaper_refresh
+
+  # --- Example: Laptop only ---
+  - name: laptop-only
+    description: "Just the built-in display"
+    monitors:
+      laptop:
+        vendor: "AUO"
+        product: "0x87a8"
+    layout:
+      - monitor: laptop
+        x: 0
+        y: 0
+        scale: 2.0
+        primary: true
+        mode: "3840x2400@120"
+    post_config:
+      - type: wallpaper_refresh
+
+# ---------------------------------------------------------------------------
+# Post-config action reference
+# ---------------------------------------------------------------------------
+#
+# dock_monitor:
+#   Move ubuntu-dock (Dash to Dock) to a specific monitor.
+#   Uses preferred-monitor-by-connector in dconf.
+#     - type: dock_monitor
+#       monitor: <alias>    # references a monitor alias from the profile
+#
+# dock_icon_size:
+#   Set the dock icon size (dash-max-icon-size).
+#     - type: dock_icon_size
+#       value: 48
+#
+# wallpaper_refresh:
+#   Re-set wallpaper URIs to work around the GNOME black wallpaper bug
+#   that occurs after monitor hotplug.
+#     - type: wallpaper_refresh
+#
+# command:
+#   Run an arbitrary shell command.
+#     - type: command
+#       command: "notify-send 'Monitors configured!'"
+#
+# ---------------------------------------------------------------------------
+# Mode matching
+# ---------------------------------------------------------------------------
+# Modes are specified as "WIDTHxHEIGHT@RATE" (e.g. "5120x1440@120").
+# The refresh rate is fuzzy-matched within 1 Hz tolerance, so
+# "5120x1440@120" matches both 119.999 Hz and 120.000 Hz.
+# If mode is omitted, the monitor's current or preferred mode is used.
+#
+# ---------------------------------------------------------------------------
+# Transform values
+# ---------------------------------------------------------------------------
+# 0 = normal, 1 = 90 CW, 2 = 180, 3 = 270 CW
+# 4 = flipped, 5 = 90 flipped, 6 = 180 flipped, 7 = 270 flipped

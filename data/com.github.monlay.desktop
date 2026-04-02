@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Monlay
+Comment=Automatic monitor profile manager for GNOME Wayland
+Exec=monlay-gui
+Icon=com.github.monlay
+Terminal=false
+Type=Application
+Categories=Settings;HardwareSettings;
+Keywords=monitor;display;screen;hotplug;profile;
+StartupNotify=true

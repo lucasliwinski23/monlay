@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "monlay"
+version = "0.1.0"
+description = "Automatic monitor profile manager for GNOME Wayland"
+requires-python = ">=3.10"
+dependencies = ["PyYAML>=6.0", "PyGObject>=3.42"]
+
+[project.scripts]
+monlay = "monlay.cli:main"
+monlay-gui = "monlay.gui.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

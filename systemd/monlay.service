@@ -1,0 +1,21 @@
+[Unit]
+Description=Monlay - Automatic Monitor Profile Manager
+Documentation=https://github.com/luca-sliwinski/monlay
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/monlay daemon
+Restart=on-failure
+RestartSec=5
+
+# Logging goes to journald via stderr
+StandardOutput=journal
+StandardError=journal
+
+# Environment for GNOME/Wayland session
+Environment=DISPLAY=:0
+
+[Install]
+WantedBy=graphical-session.target
