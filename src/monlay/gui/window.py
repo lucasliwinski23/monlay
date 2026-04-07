@@ -224,6 +224,7 @@ class MonitorProfilesWindow(Adw.ApplicationWindow):
 
     def _load_config_thread(self) -> None:
         config = None
+        state = None
         try:
             config = load_config()
         except FileNotFoundError:
@@ -232,13 +233,27 @@ class MonitorProfilesWindow(Adw.ApplicationWindow):
             log.exception("Failed to load config")
             GLib.idle_add(self._show_toast, "Failed to load config (see logs)")
 
-        GLib.idle_add(self._config_loaded, config)
+        # Also detect monitors so we can show the active profile
+        try:
+            from monlay.dbus_client import get_current_state
+            state = get_current_state()
+        except Exception:
+            log.debug("Could not detect monitors on startup")
 
-    def _config_loaded(self, config: Config | None) -> None:
+        GLib.idle_add(self._config_loaded, config, state)
+
+    def _config_loaded(self, config: Config | None, state: DisplayState | None = None) -> None:
         self._config = config
+        if state:
+            self._display_state = state
         self._refresh_sidebar()
+
+        # Update service switch state
+        self._service_switch.set_active(self._is_service_active())
+
         if config and config.profiles:
-            self._show_toast(f"Loaded {len(config.profiles)} profile(s)")
+            active = f" — '{self._active_profile_name}' active" if self._active_profile_name else ""
+            self._show_toast(f"Loaded {len(config.profiles)} profile(s){active}")
         return False
 
     # -- Sidebar --
