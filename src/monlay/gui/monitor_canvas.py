@@ -126,11 +126,12 @@ class MonitorCanvas(Gtk.DrawingArea):
             self._offset_y = 0
             return
 
-        # Bounding box of the layout in logical coordinates
+        # Bounding box of the layout in physical pixel coordinates
+        # GNOME uses physical pixels for x/y even in logical layout mode
         min_x = min(m.x for m in self._monitors)
         min_y = min(m.y for m in self._monitors)
-        max_x = max(m.x + m.logical_width for m in self._monitors)
-        max_y = max(m.y + m.logical_height for m in self._monitors)
+        max_x = max(m.x + m.width for m in self._monitors)
+        max_y = max(m.y + m.height for m in self._monitors)
 
         layout_w = max_x - min_x
         layout_h = max_y - min_y
@@ -174,8 +175,8 @@ class MonitorCanvas(Gtk.DrawingArea):
         # Check in reverse order so topmost (last drawn) wins
         for m in reversed(self._monitors):
             rx, ry = self._layout_to_canvas(m.x, m.y)
-            rw = m.logical_width * self._scale_factor
-            rh = m.logical_height * self._scale_factor
+            rw = m.width * self._scale_factor
+            rh = m.height * self._scale_factor
             if rx <= cx <= rx + rw and ry <= cy <= ry + rh:
                 return m
         return None
@@ -256,9 +257,9 @@ class MonitorCanvas(Gtk.DrawingArea):
                 continue
 
             m_left = m.x
-            m_right = m.x + m.logical_width
+            m_right = m.x + m.width
             m_top = m.y
-            m_bottom = m.y + m.logical_height
+            m_bottom = m.y + m.height
 
             # Horizontal snapping
             for t_edge, m_edge in [
@@ -347,8 +348,8 @@ class MonitorCanvas(Gtk.DrawingArea):
     ) -> None:
         selected = m.alias == self._selected_alias
         x, y = self._layout_to_canvas(m.x, m.y)
-        w = m.logical_width * self._scale_factor
-        h = m.logical_height * self._scale_factor
+        w = m.width * self._scale_factor
+        h = m.height * self._scale_factor
         r = CORNER_RADIUS
 
         # Shadow
