@@ -212,6 +212,25 @@ class MonitorProfilesWindow(Adw.ApplicationWindow):
 
         self._content_stack.set_visible_child_name("empty")
 
+        # Subscribe to MonitorsChanged so the sidebar updates live
+        self._dbus_sub_id: int | None = None
+        try:
+            bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+            self._dbus_sub_id = bus.signal_subscribe(
+                "org.gnome.Mutter.DisplayConfig",
+                "org.gnome.Mutter.DisplayConfig",
+                "MonitorsChanged",
+                "/org/gnome/Mutter/DisplayConfig",
+                None,
+                Gio.DBusSignalFlags.NONE,
+                self._on_live_monitors_changed,
+            )
+            self._dbus_bus = bus
+            log.debug("Subscribed to MonitorsChanged for live updates")
+        except Exception:
+            log.debug("Could not subscribe to MonitorsChanged")
+            self._dbus_bus = None
+
         # Load config on startup
         GLib.idle_add(self._load_config_async)
 
@@ -511,6 +530,41 @@ class MonitorProfilesWindow(Adw.ApplicationWindow):
         else:
             # No matching profile — create one from current state
             self._create_profile_from_state(state)
+        return False
+
+    # -- Live monitor change detection --
+
+    def _on_live_monitors_changed(self, connection, sender, path, iface, signal, params):
+        """MonitorsChanged fired — refresh display state and active profile."""
+        # Debounce: wait 2 seconds for things to settle, then refresh
+        if hasattr(self, '_live_timer') and self._live_timer is not None:
+            GLib.source_remove(self._live_timer)
+        self._live_timer = GLib.timeout_add(2000, self._live_refresh)
+
+    def _live_refresh(self) -> bool:
+        self._live_timer = None
+        log.debug("Live refresh: re-detecting monitors")
+
+        def _detect():
+            try:
+                from monlay.dbus_client import get_current_state
+                state = get_current_state()
+                GLib.idle_add(self._on_live_state_updated, state)
+            except Exception:
+                log.debug("Live refresh: could not get state")
+
+        threading.Thread(target=_detect, daemon=True).start()
+        return GLib.SOURCE_REMOVE
+
+    def _on_live_state_updated(self, state: DisplayState) -> bool:
+        self._display_state = state
+        old_active = self._active_profile_name
+        self._refresh_sidebar()
+        if self._active_profile_name != old_active:
+            if self._active_profile_name:
+                self._show_toast(f"Active profile: {self._active_profile_name}")
+            else:
+                self._show_toast("No matching profile for current displays")
         return False
 
     def _on_profile_saved(self, editor: ProfileEditor, profile: Profile) -> None:
