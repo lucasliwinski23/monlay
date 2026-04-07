@@ -286,31 +286,128 @@ class MonitorProfilesWindow(Adw.ApplicationWindow):
 
     # -- Actions --
 
-    def _on_add_profile(self, button: Gtk.Button) -> None:
-        """Add a new empty profile."""
+    def _create_profile_from_state(self, state: DisplayState) -> None:
+        """Create a new profile from the current display state and select it."""
         if not self._config:
             from monlay.models import Settings
             self._config = Config(settings=Settings(), profiles=[])
 
+        # Build monitor dict and layout from live state
+        monitors: dict[str, ProfileMonitor] = {}
+        layout: list[ProfileLayout] = []
+
+        for i, mon in enumerate(state.monitors):
+            # Create a friendly alias
+            if mon.is_builtin:
+                alias = "laptop"
+            else:
+                alias = (mon.display_name or mon.connector).lower().split()[0]
+                # Deduplicate
+                base = alias
+                n = 2
+                while alias in monitors:
+                    alias = f"{base}_{n}"
+                    n += 1
+
+            monitors[alias] = ProfileMonitor(
+                vendor=mon.vendor,
+                product=mon.product,
+                serial=mon.serial,
+            )
+
+            # Find this monitor in logical monitors for position/scale
+            lx, ly, lscale, lprimary = 0, 0, 1.0, False
+            for lm in state.logical_monitors:
+                for lm_mon in lm.monitors:
+                    if lm_mon.connector == mon.connector:
+                        lx, ly = lm.x, lm.y
+                        lscale = lm.scale
+                        lprimary = lm.primary
+                        break
+
+            # Current mode
+            current_mode = None
+            for mode in mon.modes:
+                if mode.is_current:
+                    current_mode = mode.mode_id
+                    break
+            if not current_mode and mon.modes:
+                current_mode = mon.modes[0].mode_id
+
+            # Simplify mode string for config (e.g. "5120x1440@119.999" -> "5120x1440@120")
+            mode_short = current_mode or ""
+            if "@" in mode_short:
+                res, rate = mode_short.rsplit("@", 1)
+                try:
+                    mode_short = f"{res}@{round(float(rate))}"
+                except ValueError:
+                    pass
+
+            layout.append(ProfileLayout(
+                monitor=alias,
+                x=lx,
+                y=ly,
+                scale=lscale,
+                primary=lprimary,
+                transform=0,
+                mode=mode_short,
+            ))
+
         # Generate unique name
         existing = {p.name for p in self._config.profiles}
-        name = "New Profile"
+        n_mon = len(monitors)
+        name = f"{n_mon}-display setup"
+        if n_mon == 1:
+            name = "Laptop only"
         i = 2
         while name in existing:
-            name = f"New Profile {i}"
+            name = f"{n_mon}-display setup {i}"
             i += 1
 
-        new_profile = Profile(name=name)
+        new_profile = Profile(
+            name=name,
+            description=f"Auto-created from current {n_mon}-display layout",
+            monitors=monitors,
+            layout=layout,
+        )
         self._config.profiles.append(new_profile)
+        self._save_config_to_disk()
         self._refresh_sidebar()
 
-        # Select the new row
+        # Select the new profile
         idx = len(self._config.profiles) - 1
         row = self._listbox.get_row_at_index(idx)
         if row:
             self._listbox.select_row(row)
 
-        self._show_toast(f"Created profile '{name}'")
+    def _on_add_profile(self, button: Gtk.Button) -> None:
+        """Add a new profile from current display state."""
+        if self._display_state:
+            self._create_profile_from_state(self._display_state)
+            self._show_toast("Profile created from current layout")
+        else:
+            # No state yet — scan first, then create
+            self._show_toast("Scanning displays first...")
+
+            def _detect_and_create() -> None:
+                try:
+                    from monlay.dbus_client import get_current_state
+                    state = get_current_state()
+                    GLib.idle_add(self._on_detect_and_create_done, state, None)
+                except Exception as e:
+                    log.exception("Failed to detect monitors for new profile")
+                    GLib.idle_add(self._on_detect_and_create_done, None, str(e))
+
+            threading.Thread(target=_detect_and_create, daemon=True).start()
+
+    def _on_detect_and_create_done(self, state: DisplayState | None, error: str | None) -> bool:
+        if error or not state:
+            self._show_toast(f"Could not detect displays: {error or 'unknown'}")
+            return False
+        self._display_state = state
+        self._create_profile_from_state(state)
+        self._show_toast("Profile created from current layout")
+        return False
 
     def _on_delete_profile(self, button: Gtk.Button) -> None:
         row = self._listbox.get_selected_row()
@@ -386,8 +483,15 @@ class MonitorProfilesWindow(Adw.ApplicationWindow):
         names = ", ".join(
             m.display_name or m.connector for m in state.monitors
         )
-        self._show_toast(f"Detected {n} monitor(s): {names}")
         self._refresh_sidebar()
+
+        # Check if a profile already matches this monitor set
+        if self._config and self._active_profile_name:
+            self._show_toast(f"Detected {n} display(s) — profile '{self._active_profile_name}' matches")
+        else:
+            # No matching profile — offer to create one
+            self._show_toast(f"Detected {n} display(s) — creating new profile")
+            self._create_profile_from_state(state)
         return False
 
     def _on_profile_saved(self, editor: ProfileEditor, profile: Profile) -> None:
