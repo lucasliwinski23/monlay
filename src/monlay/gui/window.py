@@ -310,6 +310,7 @@ class MonitorProfilesWindow(Adw.ApplicationWindow):
                     n += 1
 
             monitors[alias] = ProfileMonitor(
+                alias=alias,
                 vendor=mon.vendor,
                 product=mon.product,
                 serial=mon.serial,
@@ -329,7 +330,7 @@ class MonitorProfilesWindow(Adw.ApplicationWindow):
             current_mode = None
             for mode in mon.modes:
                 if mode.is_current:
-                    current_mode = mode.mode_id
+                    current_mode = mode.id
                     break
             if not current_mode and mon.modes:
                 current_mode = mon.modes[0].mode_id
@@ -374,17 +375,22 @@ class MonitorProfilesWindow(Adw.ApplicationWindow):
         self._save_config_to_disk()
         self._refresh_sidebar()
 
-        # Select the new profile
+        # Select the new profile and open it in the editor
         idx = len(self._config.profiles) - 1
         row = self._listbox.get_row_at_index(idx)
         if row:
             self._listbox.select_row(row)
+            # Force editor load since row-selected signal may not fire
+            self._editor.load_profile(new_profile)
+            self._content_stack.set_visible_child_name("editor")
+            self._apply_btn.set_sensitive(True)
+            self._delete_btn.set_sensitive(True)
+        self._show_toast(f"Profile '{name}' created from current layout")
 
     def _on_add_profile(self, button: Gtk.Button) -> None:
         """Add a new profile from current display state."""
         if self._display_state:
             self._create_profile_from_state(self._display_state)
-            self._show_toast("Profile created from current layout")
         else:
             # No state yet — scan first, then create
             self._show_toast("Scanning displays first...")
@@ -406,7 +412,6 @@ class MonitorProfilesWindow(Adw.ApplicationWindow):
             return False
         self._display_state = state
         self._create_profile_from_state(state)
-        self._show_toast("Profile created from current layout")
         return False
 
     def _on_delete_profile(self, button: Gtk.Button) -> None:
@@ -487,10 +492,9 @@ class MonitorProfilesWindow(Adw.ApplicationWindow):
 
         # Check if a profile already matches this monitor set
         if self._config and self._active_profile_name:
-            self._show_toast(f"Detected {n} display(s) — profile '{self._active_profile_name}' matches")
+            self._show_toast(f"Found {n} display(s) — profile '{self._active_profile_name}' matches")
         else:
-            # No matching profile — offer to create one
-            self._show_toast(f"Detected {n} display(s) — creating new profile")
+            # No matching profile — create one from current state
             self._create_profile_from_state(state)
         return False
 
