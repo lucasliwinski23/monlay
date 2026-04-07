@@ -182,7 +182,7 @@ def _build_logical_monitors(
 def apply_profile(
     profile: Profile,
     state: DisplayState | None = None,
-    method: int = 2,
+    method: int = 1,
 ) -> DisplayState:
     """
     Apply a profile's layout to the current display configuration.

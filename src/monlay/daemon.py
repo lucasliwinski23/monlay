@@ -69,6 +69,8 @@ class HotplugDaemon:
         self._loop: GLib.MainLoop | None = None
         self._bus: Gio.DBusConnection | None = None
         self._subscription_id: int | None = None
+        self._applying: bool = False  # True while we are applying a config (ignore our own signal)
+        self._cooldown_until: float = 0.0  # timestamp until which signals are ignored
 
     def run(self) -> None:
         """Start the main loop and listen for signals."""
@@ -194,6 +196,20 @@ class HotplugDaemon:
         parameters: GLib.Variant | None,
     ) -> None:
         """Called when MonitorsChanged fires. Resets the debounce timer."""
+        import time
+
+        # Ignore signals triggered by our own ApplyMonitorsConfig call
+        if self._applying:
+            log.debug("MonitorsChanged while applying — ignoring")
+            return
+
+        # Ignore signals during cooldown after a successful apply
+        now = time.monotonic()
+        if now < self._cooldown_until:
+            log.debug("MonitorsChanged during cooldown (%.1fs left) — ignoring",
+                       self._cooldown_until - now)
+            return
+
         log.debug("MonitorsChanged signal received, (re)starting debounce timer")
 
         # Cancel any pending timer
@@ -255,11 +271,17 @@ class HotplugDaemon:
 
         # apply_profile re-fetches state atomically right before calling
         # ApplyMonitorsConfig, so stale serials are not a problem.
+        import time
+        self._applying = True
         try:
             final_state = apply_profile(profile)
         except ConfiguratorError as e:
             log.error("Failed to apply profile %r: %s", profile.name, e)
             return
+        finally:
+            self._applying = False
+            # Cooldown: ignore signals for 10 seconds after apply
+            self._cooldown_until = time.monotonic() + 10.0
 
         # Run post-config actions (dock move, wallpaper refresh, etc.)
         if profile.post_config:
